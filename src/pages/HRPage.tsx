@@ -5,6 +5,18 @@ import type { AnalyticsData } from '../types'
 interface Doc { id: number; filename: string; status: string; uploaded_at: string; chunk_count: number }
 interface Course { id: number; title: string; description: string; status: string; module_count: number; generated_at: string }
 interface User { id: number; full_name: string; email: string; role: string }
+interface EmployeeCard {
+  user: { id: number; full_name: string; email: string }
+  overall_score: number | null
+  courses: {
+    course_id: number; course_title: string; status: string
+    progress_pct: number; test_score: number | null; final_score: number | null
+    test_results: { question: string; user_answer: string; correct_answer: string; is_correct: boolean }[]
+    case_results: { module_title: string; answer: string; score: number | null }[]
+  }[]
+}
+
+interface CaseAnswer { id: number; user_name: string; module_title: string; answer: string; score: number | null; created_at: string }
 
 const statusCls = (s: string) => s === 'indexed' ? 'badge-green' : s === 'error' ? 'badge-red' : 'badge-amber'
 const statusLbl = (s: string) => s === 'indexed' ? 'Проиндексирован' : s === 'error' ? 'Ошибка' : 'Обработка...'
@@ -18,8 +30,13 @@ export const HRPage: React.FC = () => {
   const [generating, setGenerating] = useState<number | null>(null)
   const [deletingDoc, setDeletingDoc] = useState<number | null>(null)
   const [assigning, setAssigning] = useState<number | null>(null)
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeCard | null>(null)
+  const [loadingEmployee, setLoadingEmployee] = useState(false)
+  const [caseAnswers, setCaseAnswers] = useState<CaseAnswer[]>([])
+  const [scoringId, setScoringId] = useState<number | null>(null)
+  const [scoreInput, setScoreInput] = useState<string>('')
   const [successMsg, setSuccessMsg] = useState('')
-  const [tab, setTab] = useState<'analytics'|'documents'|'courses'>('analytics')
+  const [tab, setTab] = useState<'analytics'|'documents'|'courses'|'cases'|'employees'>('analytics')
   const [assignModal, setAssignModal] = useState<Course | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -32,6 +49,9 @@ export const HRPage: React.FC = () => {
     // Загружаем курсы
     fetch(`${baseUrl}/courses`, { headers })
       .then(r => r.json()).then(setCourses).catch(() => {})
+    // Загружаем ответы на кейсы
+    fetch(`${baseUrl}/case-answers`, { headers })
+      .then(r => r.json()).then(data => { if (Array.isArray(data)) setCaseAnswers(data) }).catch(() => {})
     // Загружаем пользователей
     fetch(`${baseUrl}/users`, { headers })
       .then(r => r.json()).then(data => {
@@ -74,6 +94,30 @@ export const HRPage: React.FC = () => {
       fetch(`${baseUrl}/courses`, { headers }).then(r => r.json()).then(setCourses).catch(() => {})
     } catch { flash('❌ Ошибка генерации курса') }
     finally { setGenerating(null) }
+  }
+
+  const handleScoreCaseAnswer = async (answerId: number) => {
+    const score = parseFloat(scoreInput)
+    if (isNaN(score) || score < 0 || score > 100) { flash('❌ Оценка должна быть от 0 до 100'); return }
+    try {
+      await fetch(`${baseUrl}/case-answers/${answerId}/score`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ score })
+      })
+      setCaseAnswers(prev => prev.map(a => a.id === answerId ? {...a, score} : a))
+      setScoringId(null); setScoreInput('')
+      flash('✅ Оценка выставлена')
+    } catch { flash('❌ Ошибка') }
+  }
+
+  const loadEmployee = async (userId: number) => {
+    setLoadingEmployee(true)
+    try {
+      const res = await fetch(`${baseUrl}/analytics/employee/${userId}`, { headers })
+      const data = await res.json()
+      setSelectedEmployee(data)
+    } catch { flash('❌ Ошибка загрузки') }
+    finally { setLoadingEmployee(false) }
   }
 
   const handleDeleteCourse = async (courseId: number) => {
@@ -142,7 +186,7 @@ export const HRPage: React.FC = () => {
 
       {/* Tabs */}
       <div style={{ display:'flex', gap:4, marginBottom:20, background:'var(--bg)', padding:4, borderRadius:'var(--radius-sm)', width:'fit-content', border:'1px solid var(--border)' }}>
-        {(['analytics','documents','courses'] as const).map(t => (
+        {(['analytics','documents','courses','cases','employees'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding:'6px 16px', borderRadius:'var(--radius-sm)', border:'none', cursor:'pointer',
             fontSize:13, fontWeight:500, transition:'all .13s',
@@ -150,7 +194,7 @@ export const HRPage: React.FC = () => {
             color: tab===t ? 'var(--text)' : 'var(--text-muted)',
             boxShadow: tab===t ? 'var(--shadow)' : 'none',
           }}>
-            {t==='analytics' ? '📊 Аналитика' : t==='documents' ? '📁 Документы' : '📚 Курсы'}
+            {t==='analytics' ? '📊 Аналитика' : t==='documents' ? '📁 Документы' : t==='courses' ? '📚 Курсы' : t==='cases' ? '✍️ Кейсы' : '👤 Сотрудники'}
           </button>
         ))}
       </div>
@@ -300,6 +344,198 @@ export const HRPage: React.FC = () => {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Case Answers ──────────────────────── */}
+      {tab === 'cases' && (
+        <>
+          {caseAnswers.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'48px 24px', color:'var(--text-muted)' }}>
+              <div style={{ fontSize:36, marginBottom:10 }}>✍️</div>
+              <div style={{ fontWeight:600, marginBottom:6 }}>Ответов на кейсы пока нет</div>
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+              {caseAnswers.map(a => (
+                <div key={a.id} className="card" style={{ padding:20 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                    <div>
+                      <div style={{ fontWeight:600, fontSize:14 }}>{a.user_name}</div>
+                      <div style={{ fontSize:12, color:'var(--text-muted)' }}>{a.module_title} · {new Date(a.created_at).toLocaleDateString('ru-RU')}</div>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      {a.score !== null ? (
+                        <span style={{ fontWeight:700, fontSize:16, color: a.score >= 80 ? 'var(--green)' : a.score >= 60 ? 'var(--amber)' : 'var(--red)' }}>
+                          {a.score}%
+                        </span>
+                      ) : (
+                        <span style={{ fontSize:12, color:'var(--text-muted)' }}>Не оценено</span>
+                      )}
+                      <button className="btn btn-outline" style={{ fontSize:12, padding:'4px 10px' }}
+                        onClick={() => { setScoringId(a.id); setScoreInput(a.score?.toString() || '') }}>
+                        ✏️ Оценить
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:13, color:'var(--text)', background:'var(--bg)', padding:'10px 14px', borderRadius:'var(--radius-sm)', whiteSpace:'pre-wrap' }}>
+                    {a.answer}
+                  </div>
+                  {scoringId === a.id && (
+                    <div style={{ display:'flex', gap:8, marginTop:10, alignItems:'center' }}>
+                      <input
+                        type="number" min="0" max="100"
+                        value={scoreInput}
+                        onChange={e => setScoreInput(e.target.value)}
+                        placeholder="Оценка 0-100"
+                        style={{ width:120, padding:'6px 10px', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', fontSize:13 }}
+                      />
+                      <button className="btn btn-primary" style={{ fontSize:12, padding:'6px 12px' }}
+                        onClick={() => handleScoreCaseAnswer(a.id)}>Сохранить</button>
+                      <button className="btn btn-outline" style={{ fontSize:12, padding:'6px 12px' }}
+                        onClick={() => setScoringId(null)}>Отмена</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Employees ────────────────────────── */}
+      {tab === 'employees' && !selectedEmployee && (
+        <>
+          {users.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'48px 24px', color:'var(--text-muted)' }}>
+              <div style={{ fontSize:36, marginBottom:10 }}>👥</div>
+              <div>Нет сотрудников</div>
+            </div>
+          ) : (
+            <div className="grid-2">
+              {users.map(u => (
+                <div key={u.id} className="card" style={{ cursor:'pointer', transition:'box-shadow .15s' }}
+                  onClick={() => loadEmployee(u.id)}>
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ width:40, height:40, borderRadius:'50%', background:'var(--indigo-dim)',
+                      display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'var(--indigo)' }}>
+                      {u.full_name[0]}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight:600, fontSize:14 }}>{u.full_name}</div>
+                      <div style={{ fontSize:12, color:'var(--text-muted)' }}>{u.email}</div>
+                    </div>
+                    <div style={{ marginLeft:'auto', fontSize:12, color:'var(--text-muted)' }}>→</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {loadingEmployee && (
+            <div style={{ display:'flex', justifyContent:'center', padding:40 }}>
+              <span className="spinner" style={{ width:24, height:24 }} />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Employee Card ─────────────────────── */}
+      {tab === 'employees' && selectedEmployee && (
+        <div>
+          <button className="btn btn-outline" style={{ marginBottom:20 }}
+            onClick={() => setSelectedEmployee(null)}>← Назад</button>
+
+          <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:24 }}>
+            <div style={{ width:56, height:56, borderRadius:'50%', background:'var(--indigo-dim)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, fontWeight:700, color:'var(--indigo)' }}>
+              {selectedEmployee.user.full_name[0]}
+            </div>
+            <div>
+              <div style={{ fontWeight:700, fontSize:20 }}>{selectedEmployee.user.full_name}</div>
+              <div style={{ fontSize:13, color:'var(--text-muted)' }}>{selectedEmployee.user.email}</div>
+            </div>
+            {selectedEmployee.overall_score !== null && (
+              <div style={{ marginLeft:'auto', textAlign:'center' }}>
+                <div style={{ fontSize:32, fontWeight:700,
+                  color: selectedEmployee.overall_score >= 80 ? 'var(--green)' : selectedEmployee.overall_score >= 60 ? 'var(--amber)' : 'var(--red)' }}>
+                  {selectedEmployee.overall_score}%
+                </div>
+                <div style={{ fontSize:11, color:'var(--text-muted)' }}>Итоговый балл</div>
+              </div>
+            )}
+          </div>
+
+          {selectedEmployee.courses.length === 0 ? (
+            <div className="card" style={{ textAlign:'center', color:'var(--text-muted)', padding:32 }}>
+              Сотрудник не записан ни на один курс
+            </div>
+          ) : (
+            selectedEmployee.courses.map(c => (
+              <div key={c.course_id} className="card" style={{ marginBottom:16 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                  <div>
+                    <div style={{ fontWeight:600, fontSize:15 }}>{c.course_title}</div>
+                    <div style={{ fontSize:12, color:'var(--text-muted)' }}>
+                      {c.status === 'completed' ? '✅ Завершён' : '🔄 В процессе'} · {c.progress_pct}%
+                    </div>
+                  </div>
+                  {c.final_score !== null && (
+                    <div style={{ fontWeight:700, fontSize:20,
+                      color: c.final_score >= 80 ? 'var(--green)' : c.final_score >= 60 ? 'var(--amber)' : 'var(--red)' }}>
+                      {c.final_score}%
+                    </div>
+                  )}
+                </div>
+
+                {c.test_results.length > 0 && (
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--text-muted)' }}>
+                      ТЕСТ {c.test_score !== null ? `— ${c.test_score}%` : ''}
+                    </div>
+                    {c.test_results.map((t, i) => (
+                      <div key={i} style={{
+                        display:'flex', gap:8, alignItems:'flex-start', padding:'6px 10px',
+                        borderRadius:'var(--radius-sm)', marginBottom:4,
+                        background: t.is_correct ? 'var(--green-dim)' : 'var(--red-dim)',
+                      }}>
+                        <span>{t.is_correct ? '✅' : '❌'}</span>
+                        <div style={{ flex:1, fontSize:12 }}>
+                          <div>{t.question}</div>
+                          {!t.is_correct && (
+                            <div style={{ color:'var(--text-muted)', marginTop:2 }}>
+                              Ответил: «{t.user_answer}» → Правильно: «{t.correct_answer}»
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {c.case_results.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--text-muted)' }}>КЕЙС</div>
+                    {c.case_results.map((cr, i) => (
+                      <div key={i} style={{ padding:'10px 14px', background:'var(--bg)', borderRadius:'var(--radius-sm)', marginBottom:4 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                          <span style={{ fontSize:12, fontWeight:500 }}>{cr.module_title}</span>
+                          {cr.score !== null ? (
+                            <span style={{ fontWeight:700, fontSize:14,
+                              color: cr.score >= 80 ? 'var(--green)' : cr.score >= 60 ? 'var(--amber)' : 'var(--red)' }}>
+                              {cr.score}%
+                            </span>
+                          ) : (
+                            <span style={{ fontSize:11, color:'var(--text-muted)' }}>Не оценено</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize:12, color:'var(--text)', whiteSpace:'pre-wrap' }}>{cr.answer}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       )}
 
       {/* ── Assign Modal ──────────────────────── */}
