@@ -9,6 +9,8 @@ export const AssistantPage: React.FC = () => {
   const [fetching, setFetching] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  const baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
+
   useEffect(() => {
     chatApi.getHistory()
       .then(setMessages)
@@ -45,6 +47,17 @@ export const AssistantPage: React.FC = () => {
     }
   }
 
+  const clearChat = async () => {
+    if (!window.confirm('Очистить историю чата?')) return
+    try {
+      await fetch(`${baseUrl}/chat/history`, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+      })
+    } catch {}
+    setMessages([])
+  }
+
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
@@ -62,11 +75,22 @@ export const AssistantPage: React.FC = () => {
       <div className="topbar">
         <div>
           <div style={{ fontWeight:600, fontSize:15 }}>AI-ассистент</div>
-          <div style={{ fontSize:11, color:'var(--text-3)' }}>Ответы строго по загруженным документам</div>
+          <div style={{ fontSize:11, color:'var(--text-muted)' }}>Ответы строго по загруженным документам</div>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--green)' }} />
-          <span style={{ fontSize:11, color:'var(--text-2)' }}>Онлайн</span>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          {messages.length > 0 && (
+            <button
+              className="btn btn-outline"
+              style={{ fontSize:12, padding:'4px 10px', color:'var(--text-muted)' }}
+              onClick={clearChat}
+            >
+              🗑 Очистить
+            </button>
+          )}
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--green)' }} />
+            <span style={{ fontSize:11, color:'var(--text-muted)' }}>Онлайн</span>
+          </div>
         </div>
       </div>
 
@@ -81,19 +105,18 @@ export const AssistantPage: React.FC = () => {
         {!fetching && messages.length === 0 && (
           <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:20 }}>
             <div style={{
-              width:60, height:60, background:'var(--indigo-light)',
+              width:60, height:60, background:'var(--indigo-dim)',
               borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28,
             }}>🤖</div>
             <div style={{ textAlign:'center' }}>
               <div style={{ fontWeight:600, fontSize:16, marginBottom:6 }}>Задайте вопрос по документам</div>
-              <div style={{ fontSize:13, color:'var(--text-2)' }}>Ответы формируются строго на основе загруженных регламентов</div>
+              <div style={{ fontSize:13, color:'var(--text-muted)' }}>Ответы формируются строго на основе загруженных регламентов</div>
             </div>
-            {/* Suggestions */}
             <div style={{ display:'flex', flexWrap:'wrap', gap:8, justifyContent:'center', maxWidth:500 }}>
               {SUGGESTIONS.map(s => (
-                <button key={s} className="btn btn-secondary btn-sm"
+                <button key={s} className="btn btn-outline"
                   onClick={() => setInput(s)}
-                  style={{ borderRadius:20 }}
+                  style={{ borderRadius:20, fontSize:12 }}
                 >{s}</button>
               ))}
             </div>
@@ -112,7 +135,7 @@ export const AssistantPage: React.FC = () => {
         {loading && (
           <div className="chat-bubble assistant" style={{ display:'flex', alignItems:'center', gap:8 }}>
             <span className="spinner" style={{ width:14, height:14 }} />
-            <span style={{ fontSize:12, color:'var(--text-2)' }}>Анализирую документы...</span>
+            <span style={{ fontSize:12, color:'var(--text-muted)' }}>Анализирую документы...</span>
           </div>
         )}
 
