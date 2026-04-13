@@ -28,13 +28,16 @@ export const TestPage: React.FC = () => {
     if (!caseAnswer.trim() || caseSubmitting) return
     setCaseSubmitting(true)
     try {
-      await fetch(`${baseUrl}/ask`, {
+      await fetch(`${baseUrl}/case-answers`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + localStorage.getItem('token'),
         },
-        body: JSON.stringify({ question: `[КЕЙС #${moduleId}] ${caseAnswer}` })
+        body: JSON.stringify({
+          module_id: Number(moduleId),
+          answer: caseAnswer,
+        })
       })
     } catch {}
     setCaseSubmitted(true)
