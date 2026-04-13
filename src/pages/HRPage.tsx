@@ -76,6 +76,15 @@ export const HRPage: React.FC = () => {
     finally { setGenerating(null) }
   }
 
+  const handleDeleteCourse = async (courseId: number) => {
+    if (!window.confirm('Удалить курс и все записи на него?')) return
+    try {
+      await fetch(`${baseUrl}/courses/${courseId}`, { method: 'DELETE', headers })
+      setCourses(prev => prev.filter(c => c.id !== courseId))
+      flash('✅ Курс удалён')
+    } catch { flash('❌ Ошибка удаления курса') }
+  }
+
   const handleAssign = async (courseId: number, userId: number) => {
     setAssigning(userId)
     try {
@@ -270,6 +279,7 @@ export const HRPage: React.FC = () => {
                       {c.module_count} модулей · {new Date(c.generated_at).toLocaleDateString('ru-RU')}
                     </div>
                   </div>
+                  <div style={{ display:'flex', gap:8 }}>
                   <button
                     className="btn btn-primary"
                     style={{ alignSelf:'flex-start', fontSize:12, padding:'6px 14px' }}
@@ -277,6 +287,14 @@ export const HRPage: React.FC = () => {
                   >
                     👤 Назначить сотруднику
                   </button>
+                  <button
+                    className="btn btn-outline"
+                    style={{ fontSize:12, padding:'6px 10px', color:'var(--red)', borderColor:'var(--red)' }}
+                    onClick={() => handleDeleteCourse(c.id)}
+                  >
+                    🗑
+                  </button>
+                  </div>
                 </div>
               ))}
             </div>
