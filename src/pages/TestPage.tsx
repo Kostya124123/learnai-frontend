@@ -24,6 +24,34 @@ export const TestPage: React.FC = () => {
 
   const baseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
 
+  const markComplete = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      // Получаем модуль чтобы узнать course_id
+      const modRes = await fetch(`${baseUrl}/modules/${moduleId}`, { headers })
+      if (!modRes.ok) return
+      const mod = await modRes.json()
+      // Получаем все модули курса
+      const modsRes = await fetch(`${baseUrl}/courses/${mod.course_id}/modules`, { headers })
+      const allMods = await modsRes.json()
+      // Получаем enrollment
+      const enrRes = await fetch(`${baseUrl}/enrollments/me`, { headers })
+      const enrollments = await enrRes.json()
+      const enr = enrollments.find((e: any) => e.course_id === mod.course_id)
+      if (!enr) return
+      // Считаем текущий прогресс — добавляем этот модуль
+      const currentCompleted = Math.round((enr.progress_pct / 100) * allMods.length)
+      const myIndex = allMods.findIndex((m: any) => m.id === Number(moduleId))
+      const newCompleted = Math.max(currentCompleted, myIndex + 1)
+      const newProgress = Math.round((newCompleted / allMods.length) * 100)
+      await fetch(`${baseUrl}/enrollments/${enr.id}/progress`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ progress_pct: newProgress })
+      })
+    } catch {}
+  }
+
   const submitCaseAnswer = async () => {
     if (!caseAnswer.trim() || caseSubmitting) return
     setCaseSubmitting(true)
@@ -41,6 +69,7 @@ export const TestPage: React.FC = () => {
       })
     } catch {}
     setCaseSubmitted(true)
+    markComplete()
     setCaseSubmitting(false)
   }
 
@@ -84,7 +113,7 @@ export const TestPage: React.FC = () => {
   }
 
   const handleNext = () => {
-    if (isLast) { setDone(true); return }
+    if (isLast) { setDone(true); markComplete(); return }
     setCurrent(c => c + 1)
     setSelected(null); setResult(null)
   }
